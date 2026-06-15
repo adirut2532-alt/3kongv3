@@ -1,10 +1,10 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Card } from './Card';
-import { Card as CardType, RowKey } from '../types/game';
-import { evaluateRow } from '../game/handEvaluator';
-import { ROW_SIZE } from '../game/scoring';
-import { colors, radius, spacing } from '../theme/theme';
+import { Card as CardType, RowKey } from './game';
+import { evaluateRow } from './handEvaluator';
+import { ROW_SIZE } from './scoring';
+import { colors, radius, spacing } from './theme';
 
 interface Props {
   row: RowKey;

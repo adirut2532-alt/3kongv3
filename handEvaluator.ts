@@ -5,7 +5,7 @@
  * score encoding: category occupies the high digits, tiebreak ranks
  * are packed below it so a single integer compare is enough.
  */
-import { Card, HandCategory, HandValue, Rank } from '../types/game';
+import { Card, HandCategory, HandValue, Rank } from './game';
 
 const TH_LABEL: Record<HandCategory, [string, string]> = {
   [HandCategory.HighCard]: ['ไพ่สูง', 'High Card'],

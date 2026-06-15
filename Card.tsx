@@ -1,8 +1,8 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
-import { Card as CardType } from '../types/game';
-import { RANK_LABEL, SUIT_SYMBOL, isRedSuit } from '../game/deck';
-import { colors, radius, shadow } from '../theme/theme';
+import { Card as CardType } from './game';
+import { RANK_LABEL, SUIT_SYMBOL, isRedSuit } from './deck';
+import { colors, radius, shadow } from './theme';
 
 interface Props {
   card?: CardType;            // omit + faceDown for opponents

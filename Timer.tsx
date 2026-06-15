@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { colors } from '../theme/theme';
+import { colors } from './theme';
 
 interface Props {
   endsAt?: number;        // epoch ms

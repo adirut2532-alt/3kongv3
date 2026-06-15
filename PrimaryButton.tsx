@@ -1,7 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients, radius, shadow, spacing } from '../theme/theme';
+import { colors, gradients, radius, shadow, spacing } from './theme';
 
 interface Props {
   label: string;

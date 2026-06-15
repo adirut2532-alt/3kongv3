@@ -13,10 +13,10 @@ import {
   RoomConfig,
   RowKey,
   SettlementEntry,
-} from '../types/game';
-import { deal } from '../game/deck';
-import { autoArrange } from '../game/autoArrange';
-import { ROW_SIZE, settleTable, validateArrangement } from '../game/scoring';
+} from './game';
+import { deal } from './deck';
+import { autoArrange } from './autoArrange';
+import { ROW_SIZE, settleTable, validateArrangement } from './scoring';
 
 const DEFAULT_CONFIG: RoomConfig = {
   roomId: 'LOCAL',

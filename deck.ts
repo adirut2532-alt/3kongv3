@@ -1,7 +1,7 @@
 /**
  * deck.ts — build, shuffle and deal a 52-card deck.
  */
-import { Card, Rank, Suit } from '../types/game';
+import { Card, Rank, Suit } from './game';
 
 export const SUITS: Suit[] = ['S', 'H', 'D', 'C'];
 export const RANKS: Rank[] = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];

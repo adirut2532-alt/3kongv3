@@ -1,12 +1,12 @@
 import React from 'react';
 import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useGameStore } from '../store/gameStore';
-import { Card } from '../components/Card';
-import { PrimaryButton } from '../components/PrimaryButton';
-import { evaluateRow } from '../game/handEvaluator';
-import { RowKey } from '../types/game';
-import { colors, gradients, radius, spacing, shadow } from '../theme/theme';
+import { useGameStore } from './gameStore';
+import { Card } from './Card';
+import { PrimaryButton } from './PrimaryButton';
+import { evaluateRow } from './handEvaluator';
+import { RowKey } from './game';
+import { colors, gradients, radius, spacing, shadow } from './theme';
 
 const ROWS: RowKey[] = ['top', 'middle', 'bottom'];
 const ROW_TH = { top: 'บน', middle: 'กลาง', bottom: 'ล่าง' };

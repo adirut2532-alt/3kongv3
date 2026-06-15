@@ -1,8 +1,8 @@
 import React from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Card } from './Card';
-import { Card as CardType } from '../types/game';
-import { spacing } from '../theme/theme';
+import { Card as CardType } from './game';
+import { spacing } from './theme';
 
 interface Props {
   cards: CardType[];

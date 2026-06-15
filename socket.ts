@@ -4,7 +4,7 @@
  * The event names here mirror server/index.js.
  */
 import { io, Socket } from 'socket.io-client';
-import { Arrangement, GameState, Player, RoomConfig } from '../types/game';
+import { Arrangement, GameState, Player, RoomConfig } from './game';
 
 const SERVER_URL = process.env.EXPO_PUBLIC_SERVER_URL ?? 'http://localhost:3001';
 

@@ -2,8 +2,8 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { SharedValue } from 'react-native-reanimated';
 import { DraggableCard, Zone } from './DraggableCard';
-import { Card as CardType } from '../types/game';
-import { colors, radius, spacing } from '../theme/theme';
+import { Card as CardType } from './game';
+import { colors, radius, spacing } from './theme';
 
 interface Props {
   cards: CardType[];

@@ -6,7 +6,7 @@
  * C(13,5)*C(8,5) is ~360k combos — fine for a one-off compute, and we cap
  * with a beam to stay snappy. Used for both "Auto Arrange" and bot turns.
  */
-import { Arrangement, Card } from '../types/game';
+import { Arrangement, Card } from './game';
 import { compareHands, evaluate3, evaluate5 } from './handEvaluator';
 import { validateArrangement } from './scoring';
 

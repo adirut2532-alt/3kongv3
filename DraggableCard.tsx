@@ -9,7 +9,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { Card } from './Card';
-import { Card as CardType } from '../types/game';
+import { Card as CardType } from './game';
 
 export interface Zone {
   key: string; // 'top' | 'middle' | 'bottom' | 'fan'

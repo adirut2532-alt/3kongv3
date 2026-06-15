@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, radius, spacing } from '../theme/theme';
+import { colors, radius, spacing } from './theme';
 
 interface Props {
   name: string;

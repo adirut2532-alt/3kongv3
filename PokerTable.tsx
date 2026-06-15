@@ -1,9 +1,9 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Player } from '../types/game';
+import { Player } from './game';
 import { Card } from './Card';
-import { colors, gradients, radius, shadow, spacing } from '../theme/theme';
+import { colors, gradients, radius, shadow, spacing } from './theme';
 
 interface Props {
   players: Player[];

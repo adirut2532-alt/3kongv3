@@ -13,7 +13,7 @@ import {
   RoomConfig,
   RowKey,
   SettlementEntry,
-} from '../types/game';
+} from './game';
 import { compareHands, evaluateRow } from './handEvaluator';
 
 export const ROW_SIZE: Record<RowKey, number> = { top: 3, middle: 5, bottom: 5 };
