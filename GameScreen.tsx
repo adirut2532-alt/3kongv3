@@ -12,7 +12,7 @@ import { suggestArrangements } from './autoArrange';
 import { RowKey, Card as CardType } from './game';
 import { evaluateRow } from './handEvaluator';
 import { rowBonus } from './scoring';
-import { colors, gradients, radius, spacing, card as cardSize } from './theme';
+import { colors, gradients, radius, spacing } from './theme';
 
 const ROW_LABEL: Record<RowKey, string> = { top: 'กองบน (3)', middle: 'กองกลาง (5)', bottom: 'กองล่าง (5)' };
 const ROW_MAX: Record<RowKey, number> = { top: 3, middle: 5, bottom: 5 };
@@ -21,7 +21,8 @@ const ROW_ORDER: RowKey[] = ['top', 'middle', 'bottom'];
 export function GameScreen() {
   const s = useGameStore();
   const me = s.players.find((p) => p.id === 'me')!;
-  const [selected, setSelected] = useState<string | null>(null);
+  // selected card id + where it lives
+  const [selected, setSelected] = useState<{ id: string; from: RowKey | 'hand' } | null>(null);
 
   const [table, setTable] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const tableRef = React.useRef<View>(null);
@@ -31,26 +32,36 @@ export function GameScreen() {
     );
   };
 
-  // --- tap handlers ---
+  // --- tap a card in hand ---
   const tapHandCard = (id: string) => {
-    setSelected((prev) => (prev === id ? null : id));
+    if (selected && selected.id === id) { setSelected(null); return; }
+    setSelected({ id, from: 'hand' });
   };
 
-  const tapRow = (row: RowKey) => {
+  // --- tap a card sitting in a row ---
+  const tapRowCard = (id: string, row: RowKey) => {
+    // if this card is already selected → deselect
+    if (selected && selected.id === id) { setSelected(null); return; }
+    // if another card is selected → try move that card into this row
+    if (selected) {
+      const ok = useGameStore.getState().moveCard(selected.id, row);
+      if (ok) { setSelected(null); return; }
+    }
+    // otherwise select this row-card (so user can tap another row to move it there)
+    setSelected({ id, from: row });
+  };
+
+  // --- tap the "วาง" (place) button on a row ---
+  const tapPlaceHere = (row: RowKey) => {
     if (!selected) return;
-    const ok = useGameStore.getState().moveCard(selected, row);
+    const ok = useGameStore.getState().moveCard(selected.id, row);
     if (ok) setSelected(null);
   };
 
-  const tapRowCard = (id: string, row: RowKey) => {
-    if (selected) {
-      // a hand/row card is selected → try to place it in this row, or swap
-      const ok = useGameStore.getState().moveCard(selected, row);
-      if (ok) { setSelected(null); return; }
-    }
-    // otherwise return this card to hand
+  // --- tap "เอาออก" to return card to hand ---
+  const tapReturnToHand = (id: string, row: RowKey) => {
     useGameStore.getState().removeFromRow(id, row);
-    setSelected(null);
+    if (selected && selected.id === id) setSelected(null);
   };
 
   // --- helpers ---
@@ -87,9 +98,7 @@ export function GameScreen() {
   };
   const geo = dealGeometry();
 
-  // --- row hand label ---
   const handLabel = (row: RowKey, cards: CardType[]) => {
-    if (cards.length === 0) return '';
     const cnt = row === 'top' ? 3 : 5;
     if (cards.length < cnt) return '';
     const v = evaluateRow(cards);
@@ -132,35 +141,48 @@ export function GameScreen() {
             {ROW_ORDER.map((row) => {
               const cards = s.arrangement[row];
               const isFull = cards.length >= ROW_MAX[row];
-              const canDrop = selected && !isFull;
+              const canDrop = !!selected && !isFull;
+              const lbl = handLabel(row, cards);
               return (
-                <Pressable key={row} onPress={() => tapRow(row)}
-                  style={[styles.rowZone, canDrop && styles.rowZoneActive]}>
+                <View key={row} style={styles.rowZone}>
                   <View style={styles.rowHeader}>
-                    <Text style={styles.rowLabel}>{ROW_LABEL[row]}</Text>
-                    <Text style={styles.rowCount}>{cards.length}/{ROW_MAX[row]}</Text>
+                    <Text style={styles.rowLabel}>{ROW_LABEL[row]}  <Text style={styles.rowCount}>{cards.length}/{ROW_MAX[row]}</Text></Text>
+                    {lbl ? <Text style={styles.rowHandLabel}>{lbl}</Text> : null}
                   </View>
                   <View style={styles.rowCards}>
-                    {cards.map((c) => (
-                      <Pressable key={c.id} onPress={() => tapRowCard(c.id, row)}
-                        style={styles.cardWrap}>
-                        <Card card={c} small />
+                    {cards.map((c) => {
+                      const isSel = selected?.id === c.id;
+                      return (
+                        <View key={c.id} style={styles.cardCol}>
+                          <Pressable onPress={() => tapRowCard(c.id, row)}
+                            style={[styles.cardWrap, isSel && styles.cardSelected]}>
+                            <Card card={c} small />
+                          </Pressable>
+                          <Pressable onPress={() => tapReturnToHand(c.id, row)} style={styles.returnBtn}>
+                            <Text style={styles.returnTxt}>✕</Text>
+                          </Pressable>
+                        </View>
+                      );
+                    })}
+                    {/* place-here button when a card is selected */}
+                    {canDrop && (
+                      <Pressable onPress={() => tapPlaceHere(row)} style={styles.placeBtn}>
+                        <Text style={styles.placeTxt}>＋ วาง</Text>
                       </Pressable>
-                    ))}
-                    {cards.length === 0 && (
-                      <Text style={styles.rowEmpty}>{selected ? '⬇ แตะวางตรงนี้' : 'ว่าง'}</Text>
+                    )}
+                    {cards.length === 0 && !canDrop && (
+                      <Text style={styles.rowEmpty}>ว่าง</Text>
                     )}
                   </View>
-                  {cards.length > 0 && (
-                    <Text style={styles.rowHandLabel}>{handLabel(row, cards)}</Text>
-                  )}
-                </Pressable>
+                </View>
               );
             })}
 
             {/* === instruction === */}
             <Text style={styles.hint}>
-              {selected ? '👆 แตะกองที่ต้องการวาง • แตะไพ่ในกองเพื่อเอาออก' : 'แตะไพ่ในมือเพื่อเลือก • แตะไพ่ในกองเพื่อเอาออก'}
+              {selected
+                ? '👆 กด "＋ วาง" ที่กองที่ต้องการ • กด ✕ เอาไพ่ออก'
+                : 'แตะไพ่เพื่อเลือก → แล้วกดวางที่กอง • กด ✕ เอาไพ่ออกจากกอง'}
             </Text>
 
             {/* === hand === */}
@@ -168,12 +190,15 @@ export function GameScreen() {
               <View style={styles.handSection}>
                 <Text style={styles.handTitle}>มือ ({s.hand.length})</Text>
                 <View style={styles.handCards}>
-                  {s.hand.map((c) => (
-                    <Pressable key={c.id} onPress={() => tapHandCard(c.id)}
-                      style={[styles.cardWrap, selected === c.id && styles.cardSelected]}>
-                      <Card card={c} small />
-                    </Pressable>
-                  ))}
+                  {s.hand.map((c) => {
+                    const isSel = selected?.id === c.id;
+                    return (
+                      <Pressable key={c.id} onPress={() => tapHandCard(c.id)}
+                        style={[styles.cardWrap, isSel && styles.cardSelected]}>
+                        <Card card={c} small />
+                      </Pressable>
+                    );
+                  })}
                 </View>
               </View>
             )}
@@ -228,27 +253,42 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.xl,
   },
-  // --- row ---
   rowZone: {
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radius.sm,
     padding: 6,
     marginBottom: 6,
-    minHeight: 62,
   },
-  rowZoneActive: {
-    borderColor: colors.goldText,
-    borderWidth: 2,
-    backgroundColor: 'rgba(212,175,55,0.08)',
-  },
-  rowHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  rowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   rowLabel: { color: colors.parchment, fontSize: 12, fontWeight: '600' },
   rowCount: { color: colors.textMuted, fontSize: 11 },
-  rowCards: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, minHeight: 40, alignItems: 'center' },
-  rowEmpty: { color: colors.textMuted, fontSize: 12, fontStyle: 'italic' },
-  rowHandLabel: { color: colors.goldText, fontSize: 11, textAlign: 'right', marginTop: 2 },
-  // --- hand ---
+  rowHandLabel: { color: colors.goldText, fontSize: 11 },
+  rowCards: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, minHeight: 44, alignItems: 'flex-start' },
+  rowEmpty: { color: colors.textMuted, fontSize: 12, fontStyle: 'italic', alignSelf: 'center' },
+  // card in row: card + ✕ button stacked
+  cardCol: { alignItems: 'center' },
+  returnBtn: {
+    marginTop: 2,
+    backgroundColor: 'rgba(255,80,80,0.25)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 1,
+  },
+  returnTxt: { color: '#ff6b6b', fontSize: 11, fontWeight: '700' },
+  // "+ วาง" drop target
+  placeBtn: {
+    borderWidth: 2,
+    borderColor: colors.goldText,
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(212,175,55,0.1)',
+  },
+  placeTxt: { color: colors.goldText, fontSize: 13, fontWeight: '700' },
+  // hand
   handSection: {
     borderWidth: 1,
     borderColor: colors.line,
@@ -259,23 +299,17 @@ const styles = StyleSheet.create({
   },
   handTitle: { color: colors.parchment, fontSize: 12, fontWeight: '600', marginBottom: 4 },
   handCards: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
-  // --- cards ---
+  // card selection
   cardWrap: {
     borderRadius: 6,
     borderWidth: 2,
     borderColor: 'transparent',
   },
   cardSelected: {
-    borderColor: colors.goldText,
-    borderWidth: 2,
-    borderRadius: 6,
-    shadowColor: '#FFD700',
-    shadowOpacity: 0.8,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 0 },
+    borderColor: '#FFD700',
+    backgroundColor: 'rgba(255,215,0,0.15)',
     transform: [{ translateY: -4 }],
   },
-  // --- misc ---
   hint: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginVertical: 6 },
   actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
 });
