@@ -5,7 +5,8 @@
  *     hand qualifies (front ตอง+5/AA+2, mid RF+16/SF+14/โฟร์+12/AAA+4/ฟูล+2,
  *     back RF+8/SF+7/โฟร์+6/AAA+2)
  *   - ตาลู (scoop all 3 rows vs an opponent) → that matchup ×2
- *   - ดาร์บี้ (scoop every non-foul opponent, ≥2 of them) → whole table ×4
+ *   - ดาร์บี้ (scoop every non-foul opponent, ≥2 of them) → that player's matchups ×2 ON TOP of the
+ *     scoop ×2, i.e. ดาร์บี้ = ทะลุ ×2 per matchup (scoop 6 pts → ดาร์บี้ 12 pts)
  *   - ไพ่มังกร (13 distinct ranks) → +30×(others), everyone else −30
  *   - ฟาว pays 6 to each non-foul opponent (pairwise, zero-sum)
  *   - points × baseBet × rateMultiplier, rake taken from net winners
@@ -107,25 +108,35 @@ export function settleTable(players: Player[], config: RoomConfig): SettlementEn
   } else {
     const scoops = new Map<string, number>();
     active.forEach((p) => scoops.set(p.id, 0));
+    // collect each pairwise result first (net is already ×2 on a ตาลู/scoop)
+    const pairs: { a: string; b: string; net: number }[] = [];
     for (let i = 0; i < n; i++) {
       for (let j = i + 1; j < n; j++) {
         const a = active[i], b = active[j];
         if (foul.get(a.id) || foul.get(b.id)) continue;
         const { net, aScoop, bScoop } = headToHead(a.arrangement!, b.arrangement!);
-        pts.set(a.id, pts.get(a.id)! + net);
-        pts.set(b.id, pts.get(b.id)! - net);
+        pairs.push({ a: a.id, b: b.id, net });
         if (aScoop) scoops.set(a.id, scoops.get(a.id)! + 1);
         if (bScoop) scoops.set(b.id, scoops.get(b.id)! + 1);
       }
     }
-    // ดาร์บี้: scoop every non-foul opponent (need ≥2) → whole table ×4
-    let anyDarby = false;
+    // ดาร์บี้: ทะลุ (scoop) คู่ต่อสู้ที่ไม่ฟาวครบทุกคน (ต้อง ≥2 คน)
+    // → คูณสองเท่า "จากทะลุ" เฉพาะคู่ของคนที่ดาร์บี้: ตาลู ×2 กลายเป็น ×4
+    const darby = new Set<string>();
     active.forEach((p) => {
       if (foul.get(p.id)) return;
       const opps = active.filter((o) => o.id !== p.id && !foul.get(o.id));
-      if (opps.length >= 2 && scoops.get(p.id) === opps.length) { anyDarby = true; label.set(p.id, '🏆 ดาร์บี้'); }
+      if (opps.length >= 2 && scoops.get(p.id) === opps.length) {
+        darby.add(p.id);
+        label.set(p.id, '🏆 ดาร์บี้');
+      }
     });
-    if (anyDarby) active.forEach((p) => pts.set(p.id, pts.get(p.id)! * 4));
+    // ลงคะแนนแต่ละคู่ — คู่ใดมีผู้เล่นที่ดาร์บี้ ให้คูณอีกเท่าตัว (×2 → ×4)
+    for (const pr of pairs) {
+      const net = (darby.has(pr.a) || darby.has(pr.b)) ? pr.net * 2 : pr.net;
+      pts.set(pr.a, pts.get(pr.a)! + net);
+      pts.set(pr.b, pts.get(pr.b)! - net);
+    }
     // ฟาว: pay 6 to each non-foul opponent (pairwise)
     for (let i = 0; i < n; i++) {
       for (let j = i + 1; j < n; j++) {
