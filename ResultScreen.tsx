@@ -5,6 +5,7 @@ import { useGameStore } from './gameStore';
 import { Card } from './Card';
 import { PrimaryButton } from './PrimaryButton';
 import { evaluateRow } from './handEvaluator';
+import { rowBonus } from './scoring';
 import { RowKey } from './game';
 import { colors, gradients, radius, spacing, shadow } from './theme';
 
@@ -16,15 +17,24 @@ export function ResultScreen() {
   const settlement = s.settlement ?? [];
   const byId = new Map(settlement.map((e) => [e.playerId, e]));
   const mvp = settlement.find((e) => e.isMvp);
+  const special = settlement.find((e) => e.label && (e.label.includes('ดาร์บี้') || e.label.includes('มังกร')));
 
   return (
     <LinearGradient colors={gradients.panel as unknown as string[]} style={styles.bg}>
       <SafeAreaView style={styles.safe}>
         <Text style={styles.title}>ผลการแข่งขัน</Text>
-        {mvp && (
-          <LinearGradient colors={gradients.reward as unknown as string[]} style={styles.mvp}>
-            <Text style={styles.mvpText}>
-              {'\u2605'} MVP: {s.players.find((p) => p.id === mvp.playerId)?.name}  (+{mvp.delta})
+
+        {special && (
+          <LinearGradient colors={gradients.reward as unknown as string[]} style={styles.special}>
+            <Text style={styles.specialText}>
+              {special.label}! {s.players.find((p) => p.id === special.playerId)?.name} กินรวดทุกคน
+            </Text>
+          </LinearGradient>
+        )}
+        {!special && mvp && (
+          <LinearGradient colors={gradients.reward as unknown as string[]} style={styles.special}>
+            <Text style={styles.specialText}>
+              ⭐ MVP: {s.players.find((p) => p.id === mvp.playerId)?.name}  (+{mvp.delta.toLocaleString('th-TH')})
             </Text>
           </LinearGradient>
         )}
@@ -36,7 +46,9 @@ export function ResultScreen() {
             return (
               <View key={p.id} style={[styles.playerCard, entry?.isMvp && styles.mvpCard]}>
                 <View style={styles.playerHead}>
-                  <Text style={styles.playerName}>{p.name}</Text>
+                  <Text style={styles.playerName}>
+                    {p.name}{entry?.label ? `  ${entry.label}` : ''}
+                  </Text>
                   <Text style={[styles.delta, { color: delta >= 0 ? colors.success : colors.danger }]}>
                     {delta >= 0 ? '+' : ''}{delta.toLocaleString('th-TH')}
                   </Text>
@@ -45,15 +57,18 @@ export function ResultScreen() {
                   ROWS.map((row) => {
                     const cards = p.arrangement![row];
                     const v = evaluateRow(cards);
+                    const bn = rowBonus(v, row);
                     return (
                       <View key={row} style={styles.rowLine}>
                         <Text style={styles.rowTag}>{ROW_TH[row]}</Text>
                         <View style={styles.rowCards}>
                           {cards.map((c) => (
-                            <Card key={c.id} card={c} small style={{ marginRight: 2 }} />
+                            <Card key={c.id} card={c} small style={{ marginRight: 3 }} />
                           ))}
                         </View>
-                        <Text style={styles.rowVal}>{v.label}</Text>
+                        <Text style={styles.rowVal}>
+                          {v.label}{bn.pts > 0 ? ` ⭐${bn.pts}` : ''}
+                        </Text>
                       </View>
                     );
                   })}
@@ -78,20 +93,20 @@ export function ResultScreen() {
 const styles = StyleSheet.create({
   bg: { flex: 1 },
   safe: { flex: 1, paddingHorizontal: spacing.md },
-  title: { color: colors.goldText, fontSize: 24, fontWeight: '800', textAlign: 'center', marginVertical: spacing.md },
-  mvp: { borderRadius: radius.pill, paddingVertical: 8, marginBottom: spacing.md, ...shadow.gold },
-  mvpText: { color: colors.black, fontWeight: '800', textAlign: 'center' },
+  title: { color: colors.goldText, fontSize: 24, fontWeight: '800', textAlign: 'center', marginVertical: spacing.sm },
+  special: { borderRadius: radius.pill, paddingVertical: 9, marginBottom: spacing.sm, ...shadow.gold },
+  specialText: { color: colors.black, fontWeight: '800', textAlign: 'center', fontSize: 14 },
   playerCard: {
     backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: radius.md,
     borderWidth: 1, borderColor: colors.line, padding: spacing.sm, marginBottom: spacing.sm,
   },
   mvpCard: { borderColor: colors.goldBright },
-  playerHead: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  playerHead: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6, alignItems: 'center' },
   playerName: { color: colors.ivory, fontWeight: '700', fontSize: 15 },
-  delta: { fontWeight: '800', fontSize: 16 },
-  rowLine: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 2 },
+  delta: { fontWeight: '800', fontSize: 17 },
+  rowLine: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 3 },
   rowTag: { color: colors.goldText, width: 34, fontSize: 12, fontWeight: '700' },
-  rowCards: { flexDirection: 'row', flex: 1 },
-  rowVal: { color: colors.emeraldGlow, fontSize: 11, fontWeight: '700', width: 70, textAlign: 'right' },
-  footer: { flexDirection: 'row', gap: spacing.sm, paddingVertical: spacing.md },
+  rowCards: { flexDirection: 'row', flex: 1, flexWrap: 'wrap', gap: 2 },
+  rowVal: { color: colors.emeraldGlow, fontSize: 11, fontWeight: '700', width: 78, textAlign: 'right' },
+  footer: { flexDirection: 'row', gap: spacing.sm, paddingVertical: spacing.sm },
 });

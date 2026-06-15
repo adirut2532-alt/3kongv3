@@ -1,14 +1,17 @@
 /**
  * autoArrange.ts — AI that splits 13 cards into a strong, valid arrangement.
  *
- * Strategy: generate candidate bottom (5) and middle (5) hands, keep the
- * best-scoring split where bottom >= middle >= top. Exhaustive search over
- * C(13,5)*C(8,5) is ~360k combos — fine for a one-off compute, and we cap
- * with a beam to stay snappy. Used for both "Auto Arrange" and bot turns.
+ * Smarter strategy than naive "stack the back":
+ *   - searches the strongest bottom candidates, and for EACH tries every
+ *     legal middle, then scores the WHOLE arrangement by total made-hand
+ *     strength + เด้ง bonus value. Maximizing the sum naturally rewards
+ *     splitting power into multiple made hands (winning 2-3 rows) and
+ *     chasing bonus hands, instead of dumping everything in one row.
+ *   - validity (bottom ≥ middle ≥ top) is always enforced, so it never fouls.
  */
 import { Arrangement, Card } from './game';
 import { compareHands, evaluate3, evaluate5 } from './handEvaluator';
-import { validateArrangement } from './scoring';
+import { rowBonus, validateArrangement } from './scoring';
 
 function combinations<T>(arr: T[], k: number): T[][] {
   const result: T[][] = [];
@@ -30,53 +33,49 @@ function without(cards: Card[], remove: Card[]): Card[] {
   return cards.filter((c) => !ids.has(c.id));
 }
 
-/**
- * Returns the strongest legal arrangement found.
- * `beam` limits how many top bottom-candidates we expand (perf vs quality).
- */
-export function autoArrange(cards: Card[], beam = 60): Arrangement {
+// 1 bonus point is worth a big chunk of strength so bots chase เด้ง hands.
+const BONUS_WEIGHT = 500_000;
+
+/** Returns the strongest legal arrangement found. */
+export function autoArrange(cards: Card[], beam = 150): Arrangement {
   if (cards.length !== 13) throw new Error('autoArrange needs 13 cards');
 
-  // Rank all 5-card bottoms, strongest first.
-  const bottomCandidates = combinations(cards, 5)
+  const bottoms = combinations(cards, 5)
     .map((b) => ({ cards: b, value: evaluate5(b) }))
     .sort((x, y) => y.value.score - x.value.score)
     .slice(0, beam);
 
-  let best: { arr: Arrangement; key: number } | null = null;
+  let best: { arr: Arrangement; q: number } | null = null;
 
-  for (const bottom of bottomCandidates) {
+  for (const bottom of bottoms) {
     const rest8 = without(cards, bottom.cards);
-    const middleCandidates = combinations(rest8, 5)
-      .map((m) => ({ cards: m, value: evaluate5(m) }))
-      .sort((x, y) => y.value.score - x.value.score);
-
-    for (const middle of middleCandidates) {
-      // bottom must be >= middle
-      if (compareHands(bottom.value, middle.value) < 0) continue;
-      const top = without(rest8, middle.cards); // remaining 3
+    const mids = combinations(rest8, 5).map((m) => ({ cards: m, value: evaluate5(m) }));
+    for (const middle of mids) {
+      if (compareHands(bottom.value, middle.value) < 0) continue; // bottom ≥ middle
+      const top = without(rest8, middle.cards);
       const topValue = evaluate3(top);
-      // middle must be >= top
-      if (compareHands(middle.value, topValue) < 0) continue;
+      if (compareHands(middle.value, topValue) < 0) continue;     // middle ≥ top
 
-      const arr: Arrangement = { top, middle: middle.cards, bottom: bottom.cards };
-      // weighted quality: bottom matters most, then middle, then top.
-      const key = bottom.value.score * 4 + middle.value.score * 2 + topValue.score;
-      if (!best || key > best.key) best = { arr, key };
-      break; // best middle for this bottom found; move on
+      const bonus =
+        rowBonus(bottom.value, 'bottom').pts +
+        rowBonus(middle.value, 'middle').pts +
+        rowBonus(topValue, 'top').pts;
+
+      // total made-hand strength + bonus value → favours balanced, bonus-rich hands
+      const q = bottom.value.score + middle.value.score + topValue.score + bonus * BONUS_WEIGHT;
+      if (!best || q > best.q) best = { arr: { top, middle: middle.cards, bottom: bottom.cards }, q };
     }
   }
 
   if (best && validateArrangement(best.arr).valid) return best.arr;
 
-  // Fallback: naive high→low split (always legal-ish, validated by caller).
   const sorted = [...cards].sort((a, b) => a.rank - b.rank);
   return { top: sorted.slice(0, 3), middle: sorted.slice(3, 8), bottom: sorted.slice(8, 13) };
 }
 
 /** A few alternative suggestions for the "AI Suggest" button. */
 export function suggestArrangements(cards: Card[], n = 3): Arrangement[] {
-  const beams = [40, 80, 140];
+  const beams = [120, 200, 300];
   const out: Arrangement[] = [];
   const seen = new Set<string>();
   for (const beam of beams) {

@@ -16,16 +16,12 @@ import { RowKey } from './game';
 import { colors, gradients, radius, spacing } from './theme';
 
 const ROW_LABEL = { top: 'กองบน (3)', middle: 'กองกลาง (5)', bottom: 'กองล่าง (5)' } as const;
+// Top row (3 cards) sits at the TOP, like a real pusoy layout.
+const ROW_ORDER: RowKey[] = ['top', 'middle', 'bottom'];
 
-/** A view that reports its window rect into the shared zones list. */
 function Measured({
   zoneKey, setZone, style, children,
-}: {
-  zoneKey: string;
-  setZone: (z: Zone) => void;
-  style?: ViewStyle;
-  children: React.ReactNode;
-}) {
+}: { zoneKey: string; setZone: (z: Zone) => void; style?: ViewStyle; children: React.ReactNode }) {
   const ref = useRef<View>(null);
   const onLayout = useCallback(() => {
     requestAnimationFrame(() =>
@@ -49,6 +45,12 @@ export function GameScreen() {
     zones.value = [...others, z];
   }, []);
 
+  // which container is currently lifting a card → raise its zIndex so the
+  // dragged card floats above the other rows / hand
+  const [lift, setLift] = useState<string | null>(null);
+  const onLiftStart = useCallback((zone: string) => setLift(zone), []);
+  const onLiftEnd = useCallback(() => setLift(null), []);
+
   const [table, setTable] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const tableRef = useRef<View>(null);
   const onTableLayout = useCallback(() => {
@@ -59,17 +61,14 @@ export function GameScreen() {
 
   const allPlaced = s.hand.length === 0;
 
-  // commit handler for drag-and-drop
-  const onDrop = useCallback((id: string, target: string) => {
-    return useGameStore.getState().moveCard(id, target as RowKey | 'fan');
-  }, []);
+  const onDrop = useCallback(
+    (id: string, target: string) => useGameStore.getState().moveCard(id, target as RowKey | 'fan'),
+    []
+  );
 
   const onConfirm = () => {
     const ok = s.confirm();
-    if (!ok) {
-      Alert.alert('หลังฟาวล์ \u26A0\uFE0F', s.foulReason ?? 'การจัดไพ่ไม่ถูกต้อง');
-      return;
-    }
+    if (!ok) { Alert.alert('ฟาว ⚠️', s.foulReason ?? 'การจัดไพ่ไม่ถูกต้อง'); return; }
     setTimeout(() => s.reveal(), 400);
   };
 
@@ -80,28 +79,34 @@ export function GameScreen() {
     if (best) s.setArrangement(best);
   };
 
-  // Compute deck origin + per-seat targets from the measured table rect.
   const dealGeometry = (): { origin: Pt; targets: Pt[] } | null => {
     if (!table) return null;
     const cx = table.x + table.w / 2;
     const cy = table.y + table.h / 2;
-    const origin = { x: cx, y: cy };
     const targets: Pt[] = [
-      { x: cx, y: table.y + table.h - 10 }, // seat 0 — me (bottom)
-      { x: table.x + 30, y: cy },           // seat 1 — left
-      { x: cx, y: table.y + 26 },           // seat 2 — top
-      { x: table.x + table.w - 30, y: cy }, // seat 3 — right
+      { x: cx, y: table.y + table.h - 10 },
+      { x: table.x + 30, y: cy },
+      { x: cx, y: table.y + 26 },
+      { x: table.x + table.w - 30, y: cy },
     ].slice(0, s.players.length);
-    return { origin, targets };
+    return { origin: { x: cx, y: cy }, targets };
   };
   const geo = dealGeometry();
+
+  const arranging = s.phase === 'arranging';
 
   return (
     <LinearGradient colors={gradients.panel as unknown as string[]} style={styles.bg}>
       <SafeAreaView style={styles.safe}>
         <TopBar name={me.name} coins={me.coins} vipLevel={me.vipLevel} />
 
-        <View ref={tableRef} collapsable={false} onLayout={onTableLayout} style={styles.tableArea}>
+        {/* Table shrinks during arranging to give the cards more room */}
+        <View
+          ref={tableRef}
+          collapsable={false}
+          onLayout={onTableLayout}
+          style={[styles.tableArea, arranging && styles.tableAreaSmall]}
+        >
           <PokerTable
             players={s.players}
             meId="me"
@@ -110,7 +115,7 @@ export function GameScreen() {
             round={s.round}
             maxRounds={s.config.maxRounds}
           />
-          {s.phase === 'arranging' && (
+          {arranging && (
             <View style={styles.timer}>
               <Timer endsAt={s.turnEndsAt} onExpire={() => s.autoArrangeMe()} />
             </View>
@@ -121,53 +126,47 @@ export function GameScreen() {
           <View style={styles.lobby}>
             <Text style={styles.lobbyTitle}>3 กอง กาญ</Text>
             <Text style={styles.lobbySub}>โต๊ะหรู • 4 ผู้เล่น • {s.config.baseBet} ต่อแต้ม</Text>
-            <PrimaryButton
-              label="เริ่มเกม"
-              icon={'\u2660'}
-              onPress={s.startRound}
-              style={{ marginTop: spacing.lg, alignSelf: 'stretch' }}
-            />
+            <PrimaryButton label="เริ่มเกม" icon={'\u2660'} onPress={s.startRound}
+              style={{ marginTop: spacing.lg, alignSelf: 'stretch' }} />
           </View>
         )}
 
         {s.phase === 'dealing' && (
-          <View style={styles.dealing}>
-            <Text style={styles.dealingText}>กำลังแจกไพ่…</Text>
-          </View>
+          <View style={styles.dealing}><Text style={styles.dealingText}>กำลังแจกไพ่…</Text></View>
         )}
 
-        {s.phase === 'arranging' && (
+        {arranging && (
           <View style={styles.panel}>
-            <Measured zoneKey="bottom" setZone={setZone}>
-              <HandRow
-                row="bottom" label={ROW_LABEL.bottom} cards={s.arrangement.bottom}
-                highlight={!!s.selectedCardId}
-                onPlace={(r) => s.selectedCardId && s.moveCard(s.selectedCardId, r)}
-                onRemove={(id) => s.moveCard(id, 'fan')}
-              />
-            </Measured>
-            <Measured zoneKey="middle" setZone={setZone}>
-              <HandRow
-                row="middle" label={ROW_LABEL.middle} cards={s.arrangement.middle}
-                highlight={!!s.selectedCardId}
-                onPlace={(r) => s.selectedCardId && s.moveCard(s.selectedCardId, r)}
-                onRemove={(id) => s.moveCard(id, 'fan')}
-              />
-            </Measured>
-            <Measured zoneKey="top" setZone={setZone}>
-              <HandRow
-                row="top" label={ROW_LABEL.top} cards={s.arrangement.top}
-                highlight={!!s.selectedCardId}
-                onPlace={(r) => s.selectedCardId && s.moveCard(s.selectedCardId, r)}
-                onRemove={(id) => s.moveCard(id, 'fan')}
-              />
-            </Measured>
+            {ROW_ORDER.map((row) => (
+              <Measured
+                key={row}
+                zoneKey={row}
+                setZone={setZone}
+                style={{ zIndex: lift === row ? 100 : 1, elevation: lift === row ? 100 : 1 }}
+              >
+                <HandRow
+                  row={row}
+                  label={ROW_LABEL[row]}
+                  cards={s.arrangement[row]}
+                  zones={zones}
+                  onDrop={onDrop}
+                  onLiftStart={onLiftStart}
+                  onLiftEnd={onLiftEnd}
+                  highlight={!!lift}
+                />
+              </Measured>
+            ))}
 
-            <Text style={styles.hint}>ลากไพ่ขึ้นไปวางในกอง • หรือลากกลับลงมาที่มือ</Text>
+            <Text style={styles.hint}>ลากไพ่ขึ้นไปวางในกอง • ลากสลับกองได้ • ลากกลับลงมาที่มือ</Text>
 
             {s.hand.length > 0 && (
-              <Measured zoneKey="fan" setZone={setZone} style={styles.fanWrap}>
-                <DraggableFan cards={s.hand} zones={zones} onDrop={onDrop} />
+              <Measured
+                zoneKey="fan"
+                setZone={setZone}
+                style={{ zIndex: lift === 'fan' ? 100 : 5, elevation: lift === 'fan' ? 100 : 5 }}
+              >
+                <DraggableFan cards={s.hand} zones={zones} onDrop={onDrop}
+                  onLiftStart={onLiftStart} onLiftEnd={onLiftEnd} />
               </Measured>
             )}
 
@@ -175,25 +174,22 @@ export function GameScreen() {
               <PrimaryButton label="จัดอัตโนมัติ" variant="emerald" icon={'\u21BB'} onPress={s.autoArrangeMe} style={{ flex: 1 }} />
               <PrimaryButton label="AI แนะนำ" variant="ghost" icon={'\u2728'} onPress={onSuggest} style={{ flex: 1 }} />
             </View>
-            <PrimaryButton
-              label={allPlaced ? 'ยืนยันไพ่' : `วางครบก่อน (เหลือ ${s.hand.length})`}
-              onPress={onConfirm}
-              disabled={!allPlaced}
-              style={{ marginTop: spacing.sm }}
-            />
+            <View style={styles.actions}>
+              <PrimaryButton label="จัดใหม่" variant="ghost" icon={'\u232B'} onPress={s.clearArrangement} style={{ flex: 1 }} />
+              <PrimaryButton
+                label={allPlaced ? 'ยืนยันไพ่' : `เหลือ ${s.hand.length} ใบ`}
+                onPress={onConfirm}
+                disabled={!allPlaced}
+                style={{ flex: 1.4 }}
+              />
+            </View>
           </View>
         )}
       </SafeAreaView>
 
-      {/* Deal animation overlays the whole screen in window coordinates */}
       {s.phase === 'dealing' && geo && (
-        <DealAnimation
-          origin={geo.origin}
-          targets={geo.targets}
-          total={13 * s.players.length}
-          intervalMs={45}
-          onDone={s.finishDealing}
-        />
+        <DealAnimation origin={geo.origin} targets={geo.targets}
+          total={13 * s.players.length} intervalMs={45} onDone={s.finishDealing} />
       )}
     </LinearGradient>
   );
@@ -203,7 +199,8 @@ const styles = StyleSheet.create({
   bg: { flex: 1 },
   safe: { flex: 1 },
   tableArea: { height: '34%', position: 'relative' },
-  timer: { position: 'absolute', top: 8, right: 16 },
+  tableAreaSmall: { height: '24%' },
+  timer: { position: 'absolute', top: 6, right: 14 },
   lobby: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   lobbyTitle: { color: colors.goldText, fontSize: 40, fontWeight: '800', letterSpacing: 1 },
   lobbySub: { color: colors.parchment, marginTop: 6 },
@@ -217,9 +214,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: colors.line,
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
   },
-  hint: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginVertical: 6 },
-  fanWrap: { flexShrink: 1 },
+  hint: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginVertical: 5 },
   actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
 });

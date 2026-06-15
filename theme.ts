@@ -97,5 +97,12 @@ export const shadow = {
   },
 };
 
-export const theme = { colors, gradients, spacing, radius, font, shadow };
+// Card pixel sizes — bumped up for readability on phones. Used by every
+// card component + the deal animation so everything stays in sync.
+export const card = {
+  sm: { w: 50, h: 72, rank: 22, suit: 24 },
+  lg: { w: 64, h: 92, rank: 28, suit: 30 },
+} as const;
+
+export const theme = { colors, gradients, spacing, radius, font, shadow, card };
 export type Theme = typeof theme;

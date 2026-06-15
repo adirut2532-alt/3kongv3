@@ -43,6 +43,7 @@ interface GameStore extends GameState {
   placeCard: (id: string, row: RowKey) => void;
   removeFromRow: (id: string, row: RowKey) => void;
   autoArrangeMe: () => void;
+  clearArrangement: () => void;
   setArrangement: (a: Arrangement) => void;
   confirm: () => boolean;       // returns false if foul
   reveal: () => void;
@@ -81,11 +82,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
   startRound: () => {
     const players = get().players;
     const hands = deal(players.length);
-    const updated = players.map((p) => ({
+    const updated: Player[] = players.map((p) => ({
       ...p,
       status: 'waiting' as const,
-      arrangement: undefined,
-      roundScore: undefined,
+      arrangement: undefined as Arrangement | undefined,
+      roundScore: undefined as number | undefined,
     }));
     // Bots arrange immediately (hidden until reveal).
     updated.forEach((p, i) => {
@@ -188,6 +189,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   setArrangement: (a) => set({ arrangement: a, hand: [], selectedCardId: null, foulReason: undefined }),
+
+  clearArrangement: () => {
+    const { hand, arrangement } = get();
+    const all = [...hand, ...arrangement.top, ...arrangement.middle, ...arrangement.bottom]
+      .sort((a, b) => b.rank - a.rank);
+    set({ hand: all, arrangement: emptyArrangement(), selectedCardId: null, foulReason: undefined });
+  },
 
   confirm: () => {
     const { arrangement, players } = get();

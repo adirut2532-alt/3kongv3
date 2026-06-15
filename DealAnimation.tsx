@@ -13,8 +13,8 @@ interface Props {
   onDone: () => void;
 }
 
-const CARD_W = 40;
-const CARD_H = 58;
+const CARD_W = 50;
+const CARD_H = 72;
 
 let SPRITE_ID = 0;
 

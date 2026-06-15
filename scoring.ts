@@ -1,9 +1,14 @@
 /**
  * scoring.ts — arrangement validation + Chinese-poker scoring.
- *
- * Scoring is intentionally modular: tweak BONUS to match the exact
- * "3 กอง กาญ" house ruleset (เด้ง, ตอง, ไหล, จับ, etc.) without touching
- * the comparison engine.
+ * Replicates the "3 กอง กาญ" house ruleset from the original web version:
+ *   - win a row = 1 point, or the row's เด้ง bonus points if the winning
+ *     hand qualifies (front ตอง+5/AA+2, mid RF+16/SF+14/โฟร์+12/AAA+4/ฟูล+2,
+ *     back RF+8/SF+7/โฟร์+6/AAA+2)
+ *   - ตาลู (scoop all 3 rows vs an opponent) → that matchup ×2
+ *   - ดาร์บี้ (scoop every non-foul opponent, ≥2 of them) → whole table ×4
+ *   - ไพ่มังกร (13 distinct ranks) → +30×(others), everyone else −30
+ *   - ฟาว pays 6 to each non-foul opponent (pairwise, zero-sum)
+ *   - points × baseBet × rateMultiplier, rake taken from net winners
  */
 import {
   Arrangement,
@@ -32,106 +37,117 @@ export function validateArrangement(a: Arrangement): { valid: boolean; reason?: 
   const middle = evaluateRow(a.middle);
   const bottom = evaluateRow(a.bottom);
 
-  if (compareHands(middle, top) < 0)
-    return { valid: false, reason: 'หลังฟาวล์: กลางเล็กกว่าบน' };
-  if (compareHands(bottom, middle) < 0)
-    return { valid: false, reason: 'หลังฟาวล์: ล่างเล็กกว่ากลาง' };
-
+  if (compareHands(middle, top) < 0) return { valid: false, reason: 'ฟาว: กลางเล็กกว่าบน' };
+  if (compareHands(bottom, middle) < 0) return { valid: false, reason: 'ฟาว: ล่างเล็กกว่ากลาง' };
   return { valid: true };
 }
 
-/**
- * BONUS (เด้ง): extra multiplier when a row hits a strong hand.
- * Bottom rewards bigger because it's harder. Adjust to taste.
- */
-const BONUS: Partial<Record<RowKey, Partial<Record<HandCategory, number>>>> = {
-  top: { [HandCategory.ThreeKind]: 3 },             // ตองหัว
-  middle: { [HandCategory.FullHouse]: 2, [HandCategory.FourKind]: 8, [HandCategory.StraightFlush]: 10 },
-  bottom: { [HandCategory.FourKind]: 4, [HandCategory.StraightFlush]: 5 },
-};
+export interface BonusResult { pts: number; label: string; }
 
-function rowBonus(row: RowKey, v: HandValue): number {
-  return BONUS[row]?.[v.category] ?? 1;
+/** เด้งโบนัส for a made hand in a given row. */
+export function rowBonus(v: HandValue, row: RowKey): BonusResult {
+  const isAce = v.tiebreak[0] === 14; // pair/trips/quad/FH-trips/straight-high rank
+  if (row === 'top') {
+    if (v.category === HandCategory.ThreeKind) return { pts: 5, label: 'ตอง +5' };
+    if (v.category === HandCategory.Pair && isAce) return { pts: 2, label: 'AA +2' };
+  } else if (row === 'middle') {
+    if (v.category === HandCategory.StraightFlush)
+      return isAce ? { pts: 16, label: 'รอยัล +16' } : { pts: 14, label: 'SF +14' };
+    if (v.category === HandCategory.FourKind) return { pts: 12, label: 'โฟร์ +12' };
+    if (v.category === HandCategory.FullHouse)
+      return isAce ? { pts: 4, label: 'AAA +4' } : { pts: 2, label: 'ฟูล +2' };
+  } else {
+    if (v.category === HandCategory.StraightFlush)
+      return isAce ? { pts: 8, label: 'รอยัล +8' } : { pts: 7, label: 'SF +7' };
+    if (v.category === HandCategory.FourKind) return { pts: 6, label: 'โฟร์ +6' };
+    if (v.category === HandCategory.FullHouse && isAce) return { pts: 2, label: 'AAA +2' };
+  }
+  return { pts: 0, label: '' };
 }
 
-export interface HeadToHead {
-  byRow: Record<RowKey, { winner: 'a' | 'b' | 'tie'; points: number }>;
-  /** net points from a's perspective (positive = a wins) */
-  net: number;
-  scoopA: boolean; // a won all 3 rows (จับได้ทั้งกอง → x2)
-  scoopB: boolean;
+/** ไพ่มังกร — all 13 cards are distinct ranks. */
+export function isDragonHand(a: Arrangement): boolean {
+  const all = [...a.top, ...a.middle, ...a.bottom];
+  if (all.length !== 13) return false;
+  return new Set(all.map((c) => c.rank)).size === 13;
 }
 
-/** Compare two arrangements row by row. base = points per row won. */
-export function headToHead(a: Arrangement, b: Arrangement, base = 1): HeadToHead {
+/** Compare two arrangements row by row. net is from a's perspective (points). */
+export function headToHead(a: Arrangement, b: Arrangement): {
+  net: number; aScoop: boolean; bScoop: boolean;
+} {
   const rows: RowKey[] = ['top', 'middle', 'bottom'];
-  const byRow = {} as HeadToHead['byRow'];
-  let net = 0;
-  let aWins = 0;
-  let bWins = 0;
-
+  let net = 0, aw = 0, bw = 0;
   for (const row of rows) {
     const va = evaluateRow(a[row]);
     const vb = evaluateRow(b[row]);
     const cmp = compareHands(va, vb);
-    if (cmp === 0) {
-      byRow[row] = { winner: 'tie', points: 0 };
-      continue;
-    }
-    const winner = cmp > 0 ? 'a' : 'b';
-    const bonus = rowBonus(row, cmp > 0 ? va : vb);
-    const pts = base * bonus;
-    byRow[row] = { winner, points: pts };
-    if (winner === 'a') { net += pts; aWins++; } else { net -= pts; bWins++; }
+    if (cmp > 0) { const bn = rowBonus(va, row).pts; net += bn > 0 ? bn : 1; aw++; }
+    else if (cmp < 0) { const bn = rowBonus(vb, row).pts; net -= bn > 0 ? bn : 1; bw++; }
   }
-
-  const scoopA = aWins === 3;
-  const scoopB = bWins === 3;
-  if (scoopA) net *= 2; // จับ x2
-  if (scoopB) net *= 2;
-
-  return { byRow, net, scoopA, scoopB };
+  let aScoop = false, bScoop = false;
+  if (aw === 3) { net *= 2; aScoop = true; }       // ตาลู
+  else if (bw === 3) { net *= 2; bScoop = true; }
+  return { net, aScoop, bScoop };
 }
 
-/**
- * Settle a whole table. Each player faces every other player.
- * Applies room rate multiplier and rake on net winners.
- */
+/** Settle a whole table into per-player coin deltas. */
 export function settleTable(players: Player[], config: RoomConfig): SettlementEntry[] {
   const active = players.filter((p) => p.arrangement);
-  const totals = new Map<string, number>();
-  active.forEach((p) => totals.set(p.id, 0));
+  const n = active.length;
+  const pts = new Map<string, number>();
+  const foul = new Map<string, boolean>();
+  const label = new Map<string, string>();
+  active.forEach((p) => { pts.set(p.id, 0); foul.set(p.id, !validateArrangement(p.arrangement!).valid); });
 
-  for (let i = 0; i < active.length; i++) {
-    for (let j = i + 1; j < active.length; j++) {
-      const a = active[i];
-      const b = active[j];
-      const aFoul = !validateArrangement(a.arrangement!).valid;
-      const bFoul = !validateArrangement(b.arrangement!).valid;
-
-      let net: number; // from a's perspective
-      if (aFoul && bFoul) net = 0;
-      else if (aFoul) net = -6 * config.baseBet;      // ฟาวล์เสียยกกอง
-      else if (bFoul) net = 6 * config.baseBet;
-      else net = headToHead(a.arrangement!, b.arrangement!, config.baseBet).net;
-
-      net *= config.rateMultiplier;
-      totals.set(a.id, totals.get(a.id)! + net);
-      totals.set(b.id, totals.get(b.id)! - net);
+  const dragonP = active.find((p) => isDragonHand(p.arrangement!));
+  if (dragonP) {
+    active.forEach((p) => pts.set(p.id, p.id === dragonP.id ? 30 * (n - 1) : -30));
+    label.set(dragonP.id, '🐉 ไพ่มังกร');
+  } else {
+    const scoops = new Map<string, number>();
+    active.forEach((p) => scoops.set(p.id, 0));
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const a = active[i], b = active[j];
+        if (foul.get(a.id) || foul.get(b.id)) continue;
+        const { net, aScoop, bScoop } = headToHead(a.arrangement!, b.arrangement!);
+        pts.set(a.id, pts.get(a.id)! + net);
+        pts.set(b.id, pts.get(b.id)! - net);
+        if (aScoop) scoops.set(a.id, scoops.get(a.id)! + 1);
+        if (bScoop) scoops.set(b.id, scoops.get(b.id)! + 1);
+      }
     }
+    // ดาร์บี้: scoop every non-foul opponent (need ≥2) → whole table ×4
+    let anyDarby = false;
+    active.forEach((p) => {
+      if (foul.get(p.id)) return;
+      const opps = active.filter((o) => o.id !== p.id && !foul.get(o.id));
+      if (opps.length >= 2 && scoops.get(p.id) === opps.length) { anyDarby = true; label.set(p.id, '🏆 ดาร์บี้'); }
+    });
+    if (anyDarby) active.forEach((p) => pts.set(p.id, pts.get(p.id)! * 4));
+    // ฟาว: pay 6 to each non-foul opponent (pairwise)
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const a = active[i], b = active[j];
+        const fa = foul.get(a.id), fb = foul.get(b.id);
+        if (fa && fb) continue;
+        if (fa) { pts.set(a.id, pts.get(a.id)! - 6); pts.set(b.id, pts.get(b.id)! + 6); }
+        else if (fb) { pts.set(b.id, pts.get(b.id)! - 6); pts.set(a.id, pts.get(a.id)! + 6); }
+      }
+    }
+    active.forEach((p) => { if (foul.get(p.id)) label.set(p.id, '⚠️ ฟาว'); });
   }
 
-  // Rake: take a cut from each net-positive player.
-  const entries: SettlementEntry[] = [];
-  let best = -Infinity;
-  let mvp: string | null = null;
-  for (const [playerId, raw] of totals) {
-    let delta = raw;
-    if (delta > 0 && config.rakePercent > 0) {
-      delta = Math.round(delta * (1 - config.rakePercent / 100));
-    }
-    if (delta > best) { best = delta; mvp = playerId; }
-    entries.push({ playerId, delta });
-  }
+  // points → coins (× baseBet × room rate, rake from winners)
+  let best = -Infinity, mvp: string | null = null;
+  const entries: SettlementEntry[] = active.map((p) => {
+    let delta = pts.get(p.id)! * config.baseBet * config.rateMultiplier;
+    delta = delta > 0 && config.rakePercent > 0
+      ? Math.round(delta * (1 - config.rakePercent / 100))
+      : Math.round(delta);
+    if (delta > best) { best = delta; mvp = p.id; }
+    return { playerId: p.id, delta, label: label.get(p.id) || undefined };
+  });
   return entries.map((e) => ({ ...e, isMvp: e.playerId === mvp && best > 0 }));
 }
