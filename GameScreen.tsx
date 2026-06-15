@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useGameStore } from './gameStore';
 import { TopBar } from './TopBar';
@@ -17,12 +17,11 @@ import { colors, gradients, radius, spacing } from './theme';
 const ROW_LABEL: Record<RowKey, string> = { top: 'กองบน (3)', middle: 'กองกลาง (5)', bottom: 'กองล่าง (5)' };
 const ROW_MAX: Record<RowKey, number> = { top: 3, middle: 5, bottom: 5 };
 const ROW_ORDER: RowKey[] = ['top', 'middle', 'bottom'];
+const PLACE_ORDER: RowKey[] = ['bottom', 'middle', 'top'];
 
 export function GameScreen() {
   const s = useGameStore();
   const me = s.players.find((p) => p.id === 'me')!;
-  // selected card id + where it lives
-  const [selected, setSelected] = useState<{ id: string; from: RowKey | 'hand' } | null>(null);
 
   const [table, setTable] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const tableRef = React.useRef<View>(null);
@@ -32,39 +31,22 @@ export function GameScreen() {
     );
   };
 
-  // --- tap a card in hand ---
+  // tap card in hand → auto-place to first available row (bottom→mid→top)
   const tapHandCard = (id: string) => {
-    if (selected && selected.id === id) { setSelected(null); return; }
-    setSelected({ id, from: 'hand' });
-  };
-
-  // --- tap a card sitting in a row ---
-  const tapRowCard = (id: string, row: RowKey) => {
-    // if this card is already selected → deselect
-    if (selected && selected.id === id) { setSelected(null); return; }
-    // if another card is selected → try move that card into this row
-    if (selected) {
-      const ok = useGameStore.getState().moveCard(selected.id, row);
-      if (ok) { setSelected(null); return; }
+    const st = useGameStore.getState();
+    for (const row of PLACE_ORDER) {
+      if (st.arrangement[row].length < ROW_MAX[row]) {
+        st.moveCard(id, row);
+        return;
+      }
     }
-    // otherwise select this row-card (so user can tap another row to move it there)
-    setSelected({ id, from: row });
   };
 
-  // --- tap the "วาง" (place) button on a row ---
-  const tapPlaceHere = (row: RowKey) => {
-    if (!selected) return;
-    const ok = useGameStore.getState().moveCard(selected.id, row);
-    if (ok) setSelected(null);
-  };
-
-  // --- tap "เอาออก" to return card to hand ---
-  const tapReturnToHand = (id: string, row: RowKey) => {
+  // tap card in row → return to hand
+  const tapRowCard = (id: string, row: RowKey) => {
     useGameStore.getState().removeFromRow(id, row);
-    if (selected && selected.id === id) setSelected(null);
   };
 
-  // --- helpers ---
   const allPlaced = s.hand.length === 0;
   const arranging = s.phase === 'arranging';
 
@@ -78,11 +60,8 @@ export function GameScreen() {
     const all = [...s.hand, ...s.arrangement.top, ...s.arrangement.middle, ...s.arrangement.bottom];
     if (all.length !== 13) return;
     const [best] = suggestArrangements(all, 1);
-    if (best) { s.setArrangement(best); setSelected(null); }
+    if (best) s.setArrangement(best);
   };
-
-  const onAutoArrange = () => { s.autoArrangeMe(); setSelected(null); };
-  const onClear = () => { s.clearArrangement(); setSelected(null); };
 
   const dealGeometry = (): { origin: Pt; targets: Pt[] } | null => {
     if (!table) return null;
@@ -103,7 +82,7 @@ export function GameScreen() {
     if (cards.length < cnt) return '';
     const v = evaluateRow(cards);
     const b = rowBonus(v, row);
-    return v.label + (b.pts > 0 ? ` ⭐${b.pts}` : '');
+    return v.label + (b.pts > 0 ? ' \u2B50' + b.pts : '');
   };
 
   return (
@@ -117,7 +96,7 @@ export function GameScreen() {
             pot={s.pot} round={s.round} maxRounds={s.config.maxRounds} />
           {arranging && (
             <View style={styles.timer}>
-              <Timer endsAt={s.turnEndsAt} onExpire={onAutoArrange} />
+              <Timer endsAt={s.turnEndsAt} onExpire={() => s.autoArrangeMe()} />
             </View>
           )}
         </View>
@@ -140,78 +119,57 @@ export function GameScreen() {
             {/* === 3 rows === */}
             {ROW_ORDER.map((row) => {
               const cards = s.arrangement[row];
-              const isFull = cards.length >= ROW_MAX[row];
-              const canDrop = !!selected && !isFull;
               const lbl = handLabel(row, cards);
               return (
                 <View key={row} style={styles.rowZone}>
                   <View style={styles.rowHeader}>
-                    <Text style={styles.rowLabel}>{ROW_LABEL[row]}  <Text style={styles.rowCount}>{cards.length}/{ROW_MAX[row]}</Text></Text>
+                    <Text style={styles.rowLabel}>
+                      {ROW_LABEL[row]}  <Text style={styles.rowCount}>{cards.length}/{ROW_MAX[row]}</Text>
+                    </Text>
                     {lbl ? <Text style={styles.rowHandLabel}>{lbl}</Text> : null}
                   </View>
                   <View style={styles.rowCards}>
-                    {cards.map((c) => {
-                      const isSel = selected?.id === c.id;
-                      return (
-                        <View key={c.id} style={styles.cardCol}>
-                          <Pressable onPress={() => tapRowCard(c.id, row)}
-                            style={[styles.cardWrap, isSel && styles.cardSelected]}>
-                            <Card card={c} small />
-                          </Pressable>
-                          <Pressable onPress={() => tapReturnToHand(c.id, row)} style={styles.returnBtn}>
-                            <Text style={styles.returnTxt}>✕</Text>
-                          </Pressable>
-                        </View>
-                      );
-                    })}
-                    {/* place-here button when a card is selected */}
-                    {canDrop && (
-                      <Pressable onPress={() => tapPlaceHere(row)} style={styles.placeBtn}>
-                        <Text style={styles.placeTxt}>＋ วาง</Text>
-                      </Pressable>
-                    )}
-                    {cards.length === 0 && !canDrop && (
-                      <Text style={styles.rowEmpty}>ว่าง</Text>
+                    {cards.map((c) => (
+                      <TouchableOpacity key={c.id} activeOpacity={0.6}
+                        onPress={() => tapRowCard(c.id, row)} style={styles.rowCardWrap}>
+                        <Card card={c} small />
+                        <View style={styles.xBadge}><Text style={styles.xTxt}>✕</Text></View>
+                      </TouchableOpacity>
+                    ))}
+                    {cards.length === 0 && (
+                      <Text style={styles.rowEmpty}>แตะไพ่ในมือเพื่อวาง</Text>
                     )}
                   </View>
                 </View>
               );
             })}
 
-            {/* === instruction === */}
-            <Text style={styles.hint}>
-              {selected
-                ? '👆 กด "＋ วาง" ที่กองที่ต้องการ • กด ✕ เอาไพ่ออก'
-                : 'แตะไพ่เพื่อเลือก → แล้วกดวางที่กอง • กด ✕ เอาไพ่ออกจากกอง'}
-            </Text>
+            <Text style={styles.hint}>แตะไพ่ในมือ = วางลงกอง • แตะไพ่ในกอง = เอาออก</Text>
 
             {/* === hand === */}
             {s.hand.length > 0 && (
               <View style={styles.handSection}>
                 <Text style={styles.handTitle}>มือ ({s.hand.length})</Text>
                 <View style={styles.handCards}>
-                  {s.hand.map((c) => {
-                    const isSel = selected?.id === c.id;
-                    return (
-                      <Pressable key={c.id} onPress={() => tapHandCard(c.id)}
-                        style={[styles.cardWrap, isSel && styles.cardSelected]}>
-                        <Card card={c} small />
-                      </Pressable>
-                    );
-                  })}
+                  {s.hand.map((c) => (
+                    <TouchableOpacity key={c.id} activeOpacity={0.6}
+                      onPress={() => tapHandCard(c.id)} style={styles.handCardWrap}>
+                      <Card card={c} small />
+                    </TouchableOpacity>
+                  ))}
                 </View>
               </View>
             )}
 
-            {/* === action buttons === */}
+            {/* === buttons === */}
             <View style={styles.actions}>
-              <PrimaryButton label="จัดอัตโนมัติ" variant="emerald" icon={'\u21BB'} onPress={onAutoArrange} style={{ flex: 1 }} />
+              <PrimaryButton label="จัดอัตโนมัติ" variant="emerald" icon={'\u21BB'} onPress={() => s.autoArrangeMe()} style={{ flex: 1 }} />
               <PrimaryButton label="AI แนะนำ" variant="ghost" icon={'\u2728'} onPress={onSuggest} style={{ flex: 1 }} />
             </View>
             <View style={styles.actions}>
-              <PrimaryButton label="จัดใหม่" variant="ghost" icon={'\u232B'} onPress={onClear} style={{ flex: 1 }} />
+              <PrimaryButton label="จัดใหม่" variant="ghost" icon={'\u232B'} onPress={() => s.clearArrangement()} style={{ flex: 1 }} />
               <PrimaryButton
-                label={allPlaced ? 'ยืนยันไพ่' : `เหลือ ${s.hand.length} ใบ`}
+                label={allPlaced ? 'ยืนยันไพ่' : 'เหลือ ' + s.hand.length + ' ใบ'}
                 onPress={onConfirm}
                 disabled={!allPlaced}
                 style={{ flex: 1.4 }}
@@ -251,7 +209,7 @@ const styles = StyleSheet.create({
   panelContent: {
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
-    paddingBottom: spacing.xl,
+    paddingBottom: 40,
   },
   rowZone: {
     borderWidth: 1,
@@ -263,32 +221,18 @@ const styles = StyleSheet.create({
   rowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   rowLabel: { color: colors.parchment, fontSize: 12, fontWeight: '600' },
   rowCount: { color: colors.textMuted, fontSize: 11 },
-  rowHandLabel: { color: colors.goldText, fontSize: 11 },
-  rowCards: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, minHeight: 44, alignItems: 'flex-start' },
-  rowEmpty: { color: colors.textMuted, fontSize: 12, fontStyle: 'italic', alignSelf: 'center' },
-  // card in row: card + ✕ button stacked
-  cardCol: { alignItems: 'center' },
-  returnBtn: {
+  rowHandLabel: { color: colors.goldText, fontSize: 11, fontWeight: '600' },
+  rowCards: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, minHeight: 44, alignItems: 'center' },
+  rowEmpty: { color: colors.textMuted, fontSize: 12, fontStyle: 'italic' },
+  rowCardWrap: { alignItems: 'center' },
+  xBadge: {
     marginTop: 2,
-    backgroundColor: 'rgba(255,80,80,0.25)',
+    backgroundColor: 'rgba(255,80,80,0.3)',
     borderRadius: 8,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 1,
   },
-  returnTxt: { color: '#ff6b6b', fontSize: 11, fontWeight: '700' },
-  // "+ วาง" drop target
-  placeBtn: {
-    borderWidth: 2,
-    borderColor: colors.goldText,
-    borderStyle: 'dashed',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    alignSelf: 'center',
-    backgroundColor: 'rgba(212,175,55,0.1)',
-  },
-  placeTxt: { color: colors.goldText, fontSize: 13, fontWeight: '700' },
-  // hand
+  xTxt: { color: '#ff6b6b', fontSize: 11, fontWeight: '700' },
   handSection: {
     borderWidth: 1,
     borderColor: colors.line,
@@ -299,16 +243,10 @@ const styles = StyleSheet.create({
   },
   handTitle: { color: colors.parchment, fontSize: 12, fontWeight: '600', marginBottom: 4 },
   handCards: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
-  // card selection
-  cardWrap: {
+  handCardWrap: {
     borderRadius: 6,
     borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  cardSelected: {
-    borderColor: '#FFD700',
-    backgroundColor: 'rgba(255,215,0,0.15)',
-    transform: [{ translateY: -4 }],
+    borderColor: 'rgba(212,175,55,0.4)',
   },
   hint: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginVertical: 6 },
   actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
