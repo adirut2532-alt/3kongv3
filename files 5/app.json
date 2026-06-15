@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "3 กอง กาญ",
+    "slug": "sam-kong-kan",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0A0A0B",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#0A0A0B",
+      "resizeMode": "contain"
+    },
+    "ios": { "supportsTablet": false },
+    "android": {
+      "adaptiveIcon": { "backgroundColor": "#0A0A0B" }
+    },
+    "extra": {}
+  }
+}
