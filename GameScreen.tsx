@@ -22,7 +22,8 @@ const PLACE_ORDER: RowKey[] = ['bottom', 'middle', 'top'];
 export function GameScreen() {
   const s = useGameStore();
   const me = s.players.find((p) => p.id === 'me')!;
-  const [tapCount, setTapCount] = useState(0);
+  const [baseBet, setBaseBet] = useState(1);
+  const [rakePercent, setRakePercent] = useState(0);
 
   const [table, setTable] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const tableRef = React.useRef<View>(null);
@@ -32,8 +33,12 @@ export function GameScreen() {
     );
   };
 
+  const startGame = () => {
+    useGameStore.getState().updateConfig({ baseBet, rakePercent, rateMultiplier: 1 });
+    s.startRound();
+  };
+
   const tapHandCard = (id: string) => {
-    setTapCount((n) => n + 1);
     const st = useGameStore.getState();
     for (const row of PLACE_ORDER) {
       if (st.arrangement[row].length < ROW_MAX[row]) {
@@ -44,7 +49,6 @@ export function GameScreen() {
   };
 
   const tapRowCard = (id: string, row: RowKey) => {
-    setTapCount((n) => n + 1);
     useGameStore.getState().removeFromRow(id, row);
   };
 
@@ -105,8 +109,45 @@ export function GameScreen() {
         {s.phase === 'lobby' && (
           <View style={styles.lobby}>
             <Text style={styles.lobbyTitle}>3 กอง กาญ</Text>
-            <Text style={styles.lobbySub}>โต๊ะหรู • 4 ผู้เล่น • {s.config.baseBet} ต่อแต้ม</Text>
-            <PrimaryButton label="เริ่มเกม" icon={'\u2660'} onPress={s.startRound}
+            <Text style={styles.lobbySub}>โต๊ะหรู • 4 ผู้เล่น</Text>
+
+            <View style={styles.configBox}>
+              <View style={styles.configRow}>
+                <Text style={styles.configLabel}>เม็ดละ (Base Bet):</Text>
+                <View style={styles.buttonRow}>
+                  {[1, 2, 4, 5, 10].map((b) => (
+                    <PrimaryButton
+                      key={b}
+                      label={b.toString()}
+                      onPress={() => setBaseBet(b)}
+                      variant={baseBet === b ? 'emerald' : 'ghost'}
+                      style={{ flex: 0.9, minHeight: 40 }}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.configRow}>
+                <Text style={styles.configLabel}>เก็บต๋ง (%):</Text>
+                <View style={styles.buttonRow}>
+                  {[0, 5, 10].map((r) => (
+                    <PrimaryButton
+                      key={r}
+                      label={r.toString()}
+                      onPress={() => setRakePercent(r)}
+                      variant={rakePercent === r ? 'emerald' : 'ghost'}
+                      style={{ flex: 1, minHeight: 40 }}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              <Text style={styles.configSummary}>
+                รอบนี้: เม็ดละ <Text style={styles.bold}>{baseBet}</Text> บาท • เก็บต๋ง <Text style={styles.bold}>{rakePercent}%</Text>
+              </Text>
+            </View>
+
+            <PrimaryButton label="เริ่มเกม" icon={'\u2660'} onPress={startGame}
               style={{ marginTop: spacing.lg, alignSelf: 'stretch' }} />
           </View>
         )}
@@ -117,9 +158,6 @@ export function GameScreen() {
 
         {arranging && (
           <ScrollView style={styles.panel} contentContainerStyle={styles.panelContent} bounces={false}>
-            {/* DEBUG TAP COUNTER */}
-            <Text style={styles.debug}>tap count: {tapCount}</Text>
-
             {/* 3 ROWS */}
             {ROW_ORDER.map((row) => {
               const cards = s.arrangement[row];
@@ -200,7 +238,21 @@ const styles = StyleSheet.create({
   timer: { position: 'absolute', top: 6, right: 14 },
   lobby: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   lobbyTitle: { color: colors.goldText, fontSize: 40, fontWeight: '800', letterSpacing: 1 },
-  lobbySub: { color: colors.parchment, marginTop: 6 },
+  lobbySub: { color: colors.parchment, marginTop: 6, marginBottom: spacing.lg },
+  configBox: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    width: '100%',
+  },
+  configRow: { marginBottom: spacing.md },
+  configLabel: { color: colors.parchment, fontSize: 13, fontWeight: '600', marginBottom: 8 },
+  buttonRow: { flexDirection: 'row', gap: spacing.xs },
+  configSummary: { color: colors.goldText, fontSize: 12, textAlign: 'center', marginTop: 8 },
+  bold: { fontWeight: '700' },
   dealing: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   dealingText: { color: colors.goldText, fontSize: 18, fontWeight: '700' },
   panel: {
@@ -212,13 +264,11 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
   },
   panelContent: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: 40 },
-  debug: { color: '#0f0', fontSize: 14, fontWeight: '700', textAlign: 'center', marginBottom: 4 },
   rowZone: { borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, padding: 6, marginBottom: 6 },
   rowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   rowLabel: { color: colors.parchment, fontSize: 12, fontWeight: '600' },
-  rowCount: { color: colors.textMuted, fontSize: 11 },
   handLbl: { color: colors.goldText, fontSize: 11, fontWeight: '600' },
-  rowCards: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, minHeight: 44, alignItems: 'flex-start' },
+  rowCards: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, minHeight: 44, alignItems: 'center' },
   empty: { color: colors.textMuted, fontSize: 12, fontStyle: 'italic' },
   cardCol: { alignItems: 'center', marginBottom: 2 },
   removeBtn: {
