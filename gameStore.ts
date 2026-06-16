@@ -224,6 +224,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ phase: 'result', players: updated, settlement });
   },
 
+  updateConfig: (partial: Partial<RoomConfig>) => {
+    const { config } = get();
+    set({ config: { ...config, ...partial } });
+  },
+
   reset: () =>
     set({
       phase: 'lobby',
