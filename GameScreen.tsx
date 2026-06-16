@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useGameStore } from './gameStore';
 import { TopBar } from './TopBar';
@@ -17,16 +17,17 @@ import { colors, gradients, radius, spacing } from './theme';
 const ROW_LABEL: Record<RowKey, string> = { top: 'กองบน (3)', middle: 'กองกลาง (5)', bottom: 'กองล่าง (5)' };
 const ROW_MAX: Record<RowKey, number> = { top: 3, middle: 5, bottom: 5 };
 const ROW_ORDER: RowKey[] = ['top', 'middle', 'bottom'];
-const PLACE_ORDER: RowKey[] = ['bottom', 'middle', 'top'];
 
 export function GameScreen() {
   const s = useGameStore();
   const me = s.players.find((p) => p.id === 'me')!;
   const [baseBet, setBaseBet] = useState(1);
   const [rakePercent, setRakePercent] = useState(0);
+  const [selectingCard, setSelectingCard] = useState<string | null>(null);
 
   const [table, setTable] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const tableRef = React.useRef<View>(null);
+
   const onTableLayout = () => {
     requestAnimationFrame(() =>
       tableRef.current?.measureInWindow((x, y, w, h) => setTable({ x, y, w, h }))
@@ -38,17 +39,32 @@ export function GameScreen() {
     s.startRound();
   };
 
-  const tapHandCard = (id: string) => {
-    const st = useGameStore.getState();
-    for (const row of PLACE_ORDER) {
-      if (st.arrangement[row].length < ROW_MAX[row]) {
-        st.moveCard(id, row);
-        return;
-      }
+  // แตะไพ่ในมือ → เลือก + ขึ้นกรอบเพื่อเลือกกอง
+  // ถ้าเหลือ 1 ใบและมีแค่ 1 กองว่าง → วางอัตโนมัติ
+  const selectHandCard = (id: string) => {
+    // หากองว่าง
+    const emptyRows = ROW_ORDER.filter((row) => s.arrangement[row].length < ROW_MAX[row]);
+    
+    // ถ้าเหลือ 1 ใบและมีแค่ 1 กองว่าง → วางเลย
+    if (s.hand.length === 1 && emptyRows.length === 1) {
+      useGameStore.getState().moveCard(id, emptyRows[0]);
+      setSelectingCard(null);
+      return;
     }
+
+    setSelectingCard(id);
   };
 
-  const tapRowCard = (id: string, row: RowKey) => {
+  // เลือกกองที่จะวาง
+  const placeInRow = (row: RowKey) => {
+    if (!selectingCard) return;
+    if (s.arrangement[row].length >= ROW_MAX[row]) return;
+    useGameStore.getState().moveCard(selectingCard, row);
+    setSelectingCard(null);
+  };
+
+  // แตะไพ่ในกอง → เอาออก
+  const removeFromRow = (id: string, row: RowKey) => {
     useGameStore.getState().removeFromRow(id, row);
   };
 
@@ -162,44 +178,84 @@ export function GameScreen() {
             {ROW_ORDER.map((row) => {
               const cards = s.arrangement[row];
               const lbl = getHandLabel(row, cards);
+              const isFull = cards.length >= ROW_MAX[row];
+              const isHighlighted = selectingCard !== null && !isFull;
+
               return (
-                <View key={row} style={styles.rowZone}>
+                <View key={row} style={[styles.rowZone, isHighlighted && styles.rowZoneHighlight]}>
                   <View style={styles.rowHeader}>
                     <Text style={styles.rowLabel}>
                       {ROW_LABEL[row]} {cards.length}/{ROW_MAX[row]}
                     </Text>
                     {lbl ? <Text style={styles.handLbl}>{lbl}</Text> : null}
                   </View>
+
+                  {/* Row Cards */}
                   <View style={styles.rowCards}>
                     {cards.map((c) => (
-                      <View key={c.id} style={styles.cardCol}>
+                      <TouchableOpacity
+                        key={c.id}
+                        activeOpacity={0.7}
+                        onPress={() => removeFromRow(c.id, row)}
+                        style={styles.rowCardWrapper}
+                      >
                         <Card card={c} small />
-                        <Text onPress={() => tapRowCard(c.id, row)} style={styles.removeBtn}>
-                          เอาออก
-                        </Text>
-                      </View>
+                        <View style={styles.removeIndicator}>
+                          <Text style={styles.removeText}>✕</Text>
+                        </View>
+                      </TouchableOpacity>
                     ))}
-                    {cards.length === 0 && <Text style={styles.empty}>ว่าง</Text>}
                   </View>
+
+                  {/* Place Button (shows when card selected and space available) */}
+                  {selectingCard && !isFull && (
+                    <TouchableOpacity
+                      activeOpacity={0.6}
+                      onPress={() => placeInRow(row)}
+                      style={styles.placeButton}
+                    >
+                      <Text style={styles.placeButtonText}>วาง {ROW_LABEL[row]}</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {isFull && selectingCard && (
+                    <Text style={styles.fullText}>เต็มแล้ว</Text>
+                  )}
+
+                  {cards.length === 0 && !selectingCard && (
+                    <Text style={styles.emptyText}>ว่าง</Text>
+                  )}
                 </View>
               );
             })}
 
-            <Text style={styles.hint}>กด "วาง" ใต้ไพ่ = ลงกอง • กด "เอาออก" = คืนมือ</Text>
+            <Text style={styles.hint}>
+              {selectingCard ? '👆 เลือกกองที่ต้องการวาง' : '1️⃣ แตะไพ่ในมือ → เลือกกอง → 2️⃣ แตะไพ่ในกอง → เอาออก'}
+            </Text>
 
             {/* HAND */}
             {s.hand.length > 0 && (
               <View style={styles.handBox}>
                 <Text style={styles.handTitle}>มือ ({s.hand.length})</Text>
                 <View style={styles.handCards}>
-                  {s.hand.map((c) => (
-                    <View key={c.id} style={styles.cardCol}>
-                      <Card card={c} small />
-                      <Text onPress={() => tapHandCard(c.id)} style={styles.placeBtn}>
-                        วาง
-                      </Text>
-                    </View>
-                  ))}
+                  {s.hand.map((c) => {
+                    const isSelected = selectingCard === c.id;
+                    return (
+                      <TouchableOpacity
+                        key={c.id}
+                        activeOpacity={0.6}
+                        onPress={() => selectHandCard(c.id)}
+                        style={[styles.handCardWrapper, isSelected && styles.handCardSelected]}
+                      >
+                        <Card card={c} small />
+                        {isSelected && (
+                          <View style={styles.selectedBadge}>
+                            <Text style={styles.selectedBadgeText}>✓</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               </View>
             )}
@@ -210,7 +266,7 @@ export function GameScreen() {
               <PrimaryButton label="AI แนะนำ" variant="ghost" icon={'\u2728'} onPress={onSuggest} style={{ flex: 1 }} />
             </View>
             <View style={styles.actions}>
-              <PrimaryButton label="จัดใหม่" variant="ghost" icon={'\u232B'} onPress={() => s.clearArrangement()} style={{ flex: 1 }} />
+              <PrimaryButton label="จัดใหม่" variant="ghost" icon={'\u232B'} onPress={() => { s.clearArrangement(); setSelectingCard(null); }} style={{ flex: 1 }} />
               <PrimaryButton
                 label={allPlaced ? 'ยืนยันไพ่' : 'เหลือ ' + s.hand.length + ' ใบ'}
                 onPress={onConfirm}
@@ -264,38 +320,54 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
   },
   panelContent: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: 40 },
-  rowZone: { borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, padding: 6, marginBottom: 6 },
-  rowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  rowLabel: { color: colors.parchment, fontSize: 12, fontWeight: '600' },
-  handLbl: { color: colors.goldText, fontSize: 11, fontWeight: '600' },
-  rowCards: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, minHeight: 44, alignItems: 'center' },
-  empty: { color: colors.textMuted, fontSize: 12, fontStyle: 'italic' },
-  cardCol: { alignItems: 'center', marginBottom: 2 },
-  removeBtn: {
-    color: '#ff6b6b',
-    fontSize: 11,
-    fontWeight: '700',
-    backgroundColor: 'rgba(255,80,80,0.2)',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginTop: 3,
-    overflow: 'hidden',
+  rowZone: { borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, padding: 8, marginBottom: 8 },
+  rowZoneHighlight: { borderColor: colors.goldText, borderWidth: 2, backgroundColor: 'rgba(212,175,55,0.15)' },
+  rowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  rowLabel: { color: colors.parchment, fontSize: 13, fontWeight: '700' },
+  handLbl: { color: colors.goldText, fontSize: 12, fontWeight: '600' },
+  rowCards: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, minHeight: 48, alignItems: 'center' },
+  rowCardWrapper: { position: 'relative' },
+  removeIndicator: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    backgroundColor: '#ff6b6b',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  placeBtn: {
-    color: '#4ade80',
-    fontSize: 11,
-    fontWeight: '700',
-    backgroundColor: 'rgba(74,222,128,0.2)',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginTop: 3,
-    overflow: 'hidden',
+  removeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  placeButton: {
+    marginTop: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(76,175,80,0.2)',
+    borderWidth: 2,
+    borderColor: '#4CAF50',
+    borderRadius: radius.sm,
   },
-  handBox: { borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, padding: 6, marginBottom: 6, backgroundColor: 'rgba(0,0,0,0.2)' },
-  handTitle: { color: colors.parchment, fontSize: 12, fontWeight: '600', marginBottom: 4 },
-  handCards: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  hint: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginVertical: 6 },
-  actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  placeButtonText: { color: '#4CAF50', fontSize: 12, fontWeight: '700', textAlign: 'center' },
+  fullText: { marginTop: 6, color: colors.textMuted, fontSize: 12, fontStyle: 'italic' },
+  emptyText: { color: colors.textMuted, fontSize: 12, fontStyle: 'italic' },
+  handBox: { borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, padding: 8, marginBottom: 8, backgroundColor: 'rgba(0,0,0,0.2)' },
+  handTitle: { color: colors.parchment, fontSize: 13, fontWeight: '700', marginBottom: 6 },
+  handCards: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  handCardWrapper: { position: 'relative', borderRadius: 6, borderWidth: 2, borderColor: 'transparent' },
+  handCardSelected: { borderColor: colors.goldText, backgroundColor: 'rgba(212,175,55,0.2)' },
+  selectedBadge: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: colors.goldText,
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectedBadgeText: { color: '#1a1a1a', fontSize: 14, fontWeight: '900' },
+  hint: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginVertical: 8, fontStyle: 'italic' },
+  actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
 });
